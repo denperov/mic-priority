@@ -70,6 +70,32 @@ func TestDeviceLines(t *testing.T) {
 	}
 }
 
+func TestAddNew(t *testing.T) {
+	devs := []device{
+		{name: "MacBook Pro Microphone", kind: kindBuiltIn},
+		{name: "JBL Tour One M3", kind: kindAvoid},
+		{name: "USB Mic", kind: kindExternal},
+		{name: "AirPods", kind: kindAvoid},
+		{name: "Studio Display", kind: kindExternal},
+		{name: "USB Mic", kind: kindExternal}, // two identical devices: one line
+		{name: "", kind: kindExternal},        // lines parse() cannot read back would be re-added forever
+		{name: "Two\nLines", kind: kindExternal},
+	}
+	text := configHeader + "[x] Wireless Mic Rx\n[x] MacBook Pro Microphone\n[ ] JBL Tour One M3" // no final newline
+	got, added := addNew(text, devs)
+	want := configHeader + "[x] Studio Display\n[x] USB Mic\n[x] Wireless Mic Rx\n[x] MacBook Pro Microphone\n[ ] JBL Tour One M3\n[ ] AirPods\n"
+	if got != want || strings.Join(added, ",") != "USB Mic,AirPods,Studio Display" {
+		t.Fatalf("addNew:\n%s\nadded %q, want:\n%s", got, added, want)
+	}
+	if again, added := addNew(got, devs); again != got || added != nil {
+		t.Fatalf("second addNew changed the config: %q", added)
+	}
+	// No device lines yet: everything goes below the header, in deviceLines order.
+	if got, _ := addNew(configHeader, devs); got != configHeader+deviceLines(devs[:5]) {
+		t.Fatalf("addNew on an empty config:\n%s", got)
+	}
+}
+
 func TestPlist(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "a.plist")
 	if err := os.WriteFile(f, []byte(plist(`/Users/a & b/<bin> "x"`)), 0o644); err != nil {

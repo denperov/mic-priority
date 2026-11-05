@@ -54,10 +54,13 @@ This replaces your per-user install, if any. Remove with `mic-priority uninstall
 
 The first run fills it from the connected devices: external (USB, ...) first, then built-in;
 Bluetooth, virtual, aggregate and iPhone Continuity devices start unchecked.
+Devices connected later are added the same way: a new external mic goes to the top and becomes
+the default input, anything else goes to the bottom (Bluetooth etc. unchecked).
+To ignore a device, uncheck it: a deleted line comes back the next time the device is connected.
 `mic-priority list` prints the current devices in the same format.
 
 Priority is strict: picking another mic manually in System Settings gets reverted too.
-For manual control, run `mic-priority uninstall`.
+For manual control, run `mic-priority uninstall` (`--all-users` if installed for all users).
 
 ## Commands
 

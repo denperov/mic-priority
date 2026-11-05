@@ -107,6 +107,7 @@ import (
 	"log"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -132,8 +133,9 @@ type config struct {
 
 const configHeader = `# mic-priority: top to bottom, the first available [x] device becomes the default input.
 # [ ] = forbidden: never the default input while anything else is available.
-# Unlisted devices are not selected while at least one [x] device is available.
-# Device names: mic-priority list. Changes apply automatically within a couple of seconds.
+# New devices are added automatically: external ones at the top, others at the bottom.
+# To ignore a device, uncheck it: a deleted line comes back when the device is connected.
+# Changes apply automatically within a couple of seconds.
 
 `
 
@@ -177,6 +179,43 @@ func deviceLines(devs []device) string {
 		fmt.Fprintf(&b, "[%s] %s\n", mark, d.name)
 	}
 	return b.String()
+}
+
+// addNew adds the devices the config text does not mention yet: external ones at
+// the top (a newly plugged-in USB mic is usually the one to use), the rest at the
+// bottom, Bluetooth, virtual, etc. unchecked. It returns the names it added.
+func addNew(text string, devs []device) (string, []string) {
+	c := parse(text)
+	var top, bottom []device
+	var added []string
+	for _, d := range devs {
+		known := slices.Contains(c.allowed, d.name) || c.forbidden[d.name] || slices.Contains(added, d.name)
+		if known || d.name == "" || strings.ContainsAny(d.name, "\r\n") { // parse() could not read such a line back
+			continue
+		}
+		added = append(added, d.name)
+		if d.kind == kindExternal {
+			top = append(top, d)
+		} else {
+			bottom = append(bottom, d)
+		}
+	}
+	if added == nil {
+		return text, nil
+	}
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	lines := strings.SplitAfter(text, "\n")
+	i := slices.IndexFunc(lines, func(l string) bool { // first device line, after the header
+		l = strings.TrimSpace(l)
+		return l != "" && l[0] != '#'
+	})
+	if i < 0 {
+		i = len(lines)
+	}
+	head, tail := strings.Join(lines[:i], ""), strings.Join(lines[i:], "")
+	return head + deviceLines(top) + tail + deviceLines(bottom), added
 }
 
 // target returns the device to make the default input; "" means leave it alone.
@@ -261,6 +300,22 @@ func ensureConfig(path string) error {
 	return writeFileAtomic(path, []byte(configHeader+deviceLines(inputs())), 0o644)
 }
 
+// addDevices writes the connected devices missing from the config file into it.
+func addDevices(path string) ([]string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	text, added := addNew(string(b), inputs())
+	if added == nil {
+		return nil, nil
+	}
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		path = p // keep a symlinked config (e.g. from a dotfiles repo) a symlink
+	}
+	return added, writeFileAtomic(path, []byte(text), 0o644)
+}
+
 func load(path string) (config, time.Time, error) {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -299,7 +354,18 @@ func run(path string) {
 		log.Fatalf("config: %v", err)
 	}
 	C.watch()
-	enforce(c)
+	update := func() {
+		if added, err := addDevices(path); err != nil {
+			log.Printf("config: %v", err)
+		} else if added != nil {
+			log.Printf("config: added %q", added)
+			if nc, nm, err := load(path); err == nil {
+				c, mtime = nc, nm // apply now: with the old config a new top device would be switched away from
+			}
+		}
+		enforce(c)
+	}
+	update()
 
 	// ponytail: poll mtime every 2 s instead of kqueue; simpler and survives atomic saves by editors.
 	tick := time.NewTicker(2 * time.Second)
@@ -318,7 +384,7 @@ func run(path string) {
 			}
 			c, mtime = nc, nm
 		}
-		enforce(c)
+		update()
 	}
 }
 
