@@ -3,12 +3,16 @@
 package main
 
 /*
-#cgo LDFLAGS: -framework CoreAudio -framework CoreFoundation
+#cgo CFLAGS: -fobjc-arc
+#cgo LDFLAGS: -framework CoreAudio -framework CoreFoundation -framework AppKit
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 extern void goOnChange(void);
+void menuRun(void);                             // menubar.m
+void menuUpdate(const char *name, int paused); // menubar.m
 
 static OSStatus listener(AudioObjectID obj, UInt32 n, const AudioObjectPropertyAddress *a, void *ctx) {
 	goOnChange();
@@ -107,12 +111,19 @@ import (
 	"log"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 )
+
+// The menu bar icon needs AppKit on the main thread: pin the main goroutine to it.
+func init() { runtime.LockOSThread() }
 
 const (
 	kindExternal = iota // USB, Thunderbolt, PCI, ...: usually the best mic
@@ -273,7 +284,7 @@ func currentInput(devs []device) string {
 	return ""
 }
 
-// ponytail: strict priority, a manual pick of another mic is reverted too; for manual control stop the agent.
+// ponytail: strict priority, a manual pick of another mic is reverted too; for manual control pause it in the menu bar.
 func enforce(c config) {
 	devs := inputs()
 	ids, avail := map[string]C.AudioObjectID{}, map[string]bool{}
@@ -343,8 +354,37 @@ func logToFile() {
 	}
 }
 
+var (
+	paused     atomic.Bool // "Pause Switching" in the menu bar; not kept across restarts
+	editConfig string      // the config file "Edit Priority List…" opens
+)
+
+// Menu bar callbacks run on the main thread: they must not block.
+//
+//export goPause
+func goPause() {
+	p := !paused.Load()
+	paused.Store(p)
+	log.Printf("paused: %v", p)
+	goOnChange() // the run loop re-enforces and updates the menu
+}
+
+//export goEdit
+func goEdit() { go exec.Command("open", "-t", editConfig).Run() }
+
+func showMenu(input string, paused bool) {
+	s := C.CString(input)
+	defer C.free(unsafe.Pointer(s))
+	p := 0
+	if paused {
+		p = 1
+	}
+	C.menuUpdate(s, C.int(p))
+}
+
 // run is the agent itself: enforce on every device change and config edit.
 func run(path string) {
+	editConfig = path
 	logToFile()
 	if err := ensureConfig(path); err != nil {
 		log.Fatalf("config: %v", err)
@@ -363,29 +403,36 @@ func run(path string) {
 				c, mtime = nc, nm // apply now: with the old config a new top device would be switched away from
 			}
 		}
-		enforce(c)
-	}
-	update()
-
-	// ponytail: poll mtime every 2 s instead of kqueue; simpler and survives atomic saves by editors.
-	tick := time.NewTicker(2 * time.Second)
-	for {
-		select {
-		case <-changed:
-		case <-tick.C:
-			st, err := os.Stat(path)
-			if err != nil || st.ModTime().Equal(mtime) {
-				continue
-			}
-			nc, nm, err := load(path)
-			if err != nil {
-				log.Printf("config: %v, keeping the previous one", err)
-				continue
-			}
-			c, mtime = nc, nm
+		p := paused.Load()
+		if !p {
+			enforce(c)
 		}
-		update()
+		showMenu(currentInput(inputs()), p)
 	}
+
+	go func() {
+		update()
+		// ponytail: poll mtime every 2 s instead of kqueue; simpler and survives atomic saves by editors.
+		tick := time.NewTicker(2 * time.Second)
+		for {
+			select {
+			case <-changed:
+			case <-tick.C:
+				st, err := os.Stat(path)
+				if err != nil || st.ModTime().Equal(mtime) {
+					continue
+				}
+				nc, nm, err := load(path)
+				if err != nil {
+					log.Printf("config: %v, keeping the previous one", err)
+					continue
+				}
+				c, mtime = nc, nm
+			}
+			update()
+		}
+	}()
+	C.menuRun() // never returns; Quit in the menu exits with 0
 }
 
 const usage = `mic-priority keeps the macOS default microphone set by a priority list.

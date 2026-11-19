@@ -4,7 +4,7 @@ mic-priority automatically sets your Mac's input to the best available microphon
 
 The usual reason to want this: a Bluetooth headset with a poor microphone becomes the input every time it connects. mic-priority switches the input straight back to your USB or built-in mic. It only changes the input, so sound keeps playing through the headset.
 
-It has no window and no menu bar icon. It runs in the background, starts at every login and restarts automatically if it stops.
+It runs in the background with a [microphone icon in the menu bar](#menu-bar-icon), starts at every login and restarts automatically if it crashes.
 
 **Requirements:** macOS 12 Monterey or later (tested on macOS 15), on Apple silicon or Intel. You don't need a GitHub account or developer tools, and installing it for yourself doesn't need an administrator password.
 
@@ -44,12 +44,12 @@ Priority:
 Note: ~/.local/bin is not in PATH; call the binary by its full path.
 ```
 
-- `running` means it is working. If it says `not running`, see [Troubleshooting](#troubleshooting).
+- `running` means it is working. If it says `stopped` or `not running`, see [Troubleshooting](#troubleshooting).
 - `input:` is the current default input.
 - `Priority:` is your list. On the first install it is built from the mics connected at that moment: USB and other external mics first, then the built-in mic, all checked (`[x]`). Bluetooth, AirPlay, iPhone, virtual and aggregate mics are added unchecked (`[ ]`), so they are not used while a checked mic is connected. You can [change the list](#change-the-priority-list) at any time.
 - The `Note:` line means Terminal doesn't recognize the short name `mic-priority`. Type the full path `~/.local/bin/mic-priority` instead. The commands in this README already do this.
 
-macOS may also show a notification that a background item was added. That item is mic-priority.
+A microphone icon appears in the menu bar. macOS may also show a notification that a background item was added; that item is mic-priority.
 
 ### 3. Try it
 
@@ -135,7 +135,16 @@ New mics are added to the list automatically when you connect them. A new USB or
 To stop a mic from being used, uncheck it instead of deleting its line. A deleted mic comes back as soon as it is connected, or right away if it is connected now.
 
 > [!IMPORTANT]
-> **Priority is strict.** If you pick another mic in System Settings, or another app changes the system input, mic-priority switches it back. To use a different mic, move it up the list or uncheck the mics above it. To stop the switching completely, [uninstall](#uninstall) it. mic-priority only changes the macOS default input: an app that is set to a specific mic in its own settings keeps using that mic.
+> **Priority is strict.** If you pick another mic in System Settings, or another app changes the system input, mic-priority switches it back. To use a different mic, move it up the list or uncheck the mics above it. To pick a mic by hand for a while, use [Pause Switching](#menu-bar-icon) in the menu bar. mic-priority only changes the macOS default input: an app that is set to a specific mic in its own settings keeps using that mic.
+
+## Menu bar icon
+
+Click the microphone icon in the menu bar:
+
+- **Input:** the current default input.
+- **Pause Switching:** stops switching, so you can pick any mic in System Settings; the icon turns into a crossed-out mic. Choose it again to resume. A pause also ends when mic-priority restarts, for example at your next login.
+- **Edit Priority List…:** opens your list in the default text editor.
+- **Quit mic-priority:** stops it until your next login. To start it again now, run `launchctl kickstart gui/$UID/local.mic-priority`.
 
 ## Update
 
@@ -166,10 +175,12 @@ rm -f ~/.config/mic-priority.conf ~/Library/Logs/mic-priority.log
 ## Troubleshooting
 
 - **`zsh: command not found: mic-priority`**: with a per-user install, type `~/.local/bin/mic-priority`.
-- **Status says `not running`**: paste the [install command](#1-run-the-install-command) again, or the [all-users command](#install-for-all-users) if you installed for all users. If someone else installed it for all users while you were logged in, just log out and back in. If it still says `not running; see ~/Library/Logs/mic-priority.log`, the reason is at the end of the log.
+- **Status says `stopped (Quit in the menu bar?)`**: run the `launchctl kickstart …` command it prints, or log out and back in. If it keeps stopping, the reason is at the end of `~/Library/Logs/mic-priority.log`.
+- **`error: agent is loaded but not running`**: the reason is at the end of `~/Library/Logs/mic-priority.log`.
+- **Status says `not running in this session`**: paste the [install command](#1-run-the-install-command) again, or the [all-users command](#install-for-all-users) if you installed for all users. If someone else installed it for all users while you were logged in, just log out and back in.
 - **`error: already installed for all users`**: to update, use the [all-users command](#install-for-all-users). To switch to a per-user install, run `mic-priority uninstall --all-users` first.
 - **`error: run as your user, without sudo`**: run the command without `sudo`. Only `--all-users` needs administrator rights, and it asks for the password itself.
-- **A mic is never selected**: it must be checked (`[x]`), and its name must exactly match a line of `~/.local/bin/mic-priority list`. A connected `[x]` mic higher in the list always wins.
+- **A mic is never selected**: it must be checked (`[x]`), and its name must exactly match a line of `~/.local/bin/mic-priority list`. A connected `[x]` mic higher in the list always wins, unless switching is paused (crossed-out mic icon; choose Pause Switching again).
 
 ## Reference
 

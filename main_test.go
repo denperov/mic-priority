@@ -108,6 +108,11 @@ func TestPlist(t *testing.T) {
 	if err != nil || string(out) != `/Users/a & b/<bin> "x"`+"\n" {
 		t.Fatalf("ProgramArguments.0 = %q, %v", out, err)
 	}
+	// Quit in the menu bar (exit 0) must stay quit; crashes must restart.
+	out, err = exec.Command("plutil", "-extract", "KeepAlive.SuccessfulExit", "raw", f).Output()
+	if err != nil || string(out) != "false\n" {
+		t.Fatalf("KeepAlive.SuccessfulExit = %q, %v", out, err)
+	}
 }
 
 // The elevate() command line must survive shell quoting inside an AppleScript string.

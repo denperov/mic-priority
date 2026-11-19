@@ -54,7 +54,10 @@ func plist(bin string) string {
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<true/>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
 </dict>
 </plist>
 `
@@ -337,8 +340,9 @@ func status() {
 	switch {
 	case pid > 0:
 		fmt.Printf("mic-priority is installed %s and running (pid %d).\n", scope, pid)
-	case loaded:
-		fmt.Printf("mic-priority is installed %s but not running; see %s\n", scope, logHint)
+	case loaded: // Quit in the menu bar exits with 0, which KeepAlive doesn't restart
+		fmt.Printf("mic-priority is installed %s but stopped (Quit in the menu bar?); start it: launchctl kickstart %s\n"+
+			"  If it keeps stopping, see %s\n", scope, service(os.Getuid()), logHint)
 	default:
 		fmt.Printf("mic-priority is installed %s but not running in this session; run: %s\n", scope, reinstall)
 	}
